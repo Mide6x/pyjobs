@@ -8,20 +8,22 @@ const PORT = 5000;
 
 app.use(cors());
 
-let jobs = [];
+const urls = {
+  python: (page) =>
+    `https://www.timesjobs.com/candidate/job-search.html?searchType=personalizedSearch&from=submit&searchTextSrc=as&searchTextText=Python&txtKeywords=Python&txtLocation=&sequence=${page}&startPage=${page}`,
+  software: (page) =>
+    `https://www.timesjobs.com/candidate/job-search.html?searchType=personalizedSearch&from=submit&searchTextSrc=ft&searchTextText=&txtKeywords=Software+Developer&txtLocation=&sequence=${page}&startPage=${page}`,
+  sales: (page) =>
+    `https://www.timesjobs.com/candidate/job-search.html?searchType=personalizedSearch&from=submit&searchTextSrc=&searchTextText=&txtKeywords=sales&txtLocation=&sequence=${page}&startPage=${page}`,
+};
 
-// Function to fetch jobs
-const fetchJobs = async () => {
+const fetchJobsFromPage = async (page, type) => {
   try {
-    const { data } = await axios.get(
-      "https://www.timesjobs.com/candidate/job-search.html?searchType=personalizedSearch&from=submit&searchTextSrc=as&searchTextText=Python&txtKeywords=Python&txtLocation="
-    );
+    const { data } = await axios.get(urls[type](page));
     const $ = cheerio.load(data);
     const newJobs = [];
 
     $("li.clearfix.job-bx.wht-shd-bx").each((index, element) => {
-      if (newJobs.length >= 90) return false; // Limit to 90 jobs
-
       const datePosted = $(element).find("span.sim-posted span").text();
       if (datePosted.includes("few")) {
         const jobTitle = $(element).find("header.clearfix h2").text().trim();
@@ -41,21 +43,62 @@ const fetchJobs = async () => {
       }
     });
 
-    jobs = newJobs;
-    console.log(`Fetched ${newJobs.length} jobs`);
+    return newJobs;
   } catch (error) {
-    console.error("Error occurred while fetching job details:", error);
+    console.error(
+      `Error occurred while fetching job details from page ${page} for ${type}:`,
+      error
+    );
+    return [];
   }
 };
 
-// Fetch jobs every 2 hours
-setInterval(fetchJobs, 2 * 60 * 60 * 1000);
+const fetchJobs = async (type, res) => {
+  try {
+    let page = 1;
+    let totalJobs = 0;
+    let consecutiveEmptyPages = 0;
 
-// Fetch jobs immediately on server start
-fetchJobs();
+    while (totalJobs < 700) {
+      const jobsFromPage = await fetchJobsFromPage(page, type);
+      if (jobsFromPage.length === 0) {
+        consecutiveEmptyPages++;
+        if (consecutiveEmptyPages >= 5) break; // Stop if no more jobs are found for 5 consecutive pages
+      } else {
+        consecutiveEmptyPages = 0;
+        totalJobs += jobsFromPage.length;
 
-app.get("/api/jobs", (req, res) => {
-  res.json(jobs);
+        // Send jobs to client as they are fetched
+        res.write(`data: ${JSON.stringify(jobsFromPage)}\n\n`);
+      }
+
+      page += 1;
+    }
+
+    // Close the SSE connection
+    res.write("data: [END]\n\n");
+    res.end();
+  } catch (error) {
+    console.error(
+      `Error occurred while fetching job details for ${type}:`,
+      error
+    );
+    res.status(500).send("Error occurred while fetching job details");
+  }
+};
+
+// SSE endpoint to send job updates
+app.get("/api/jobs/stream/:type", (req, res) => {
+  const { type } = req.params;
+  if (!urls[type]) {
+    return res.status(400).send("Invalid job type");
+  }
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+
+  fetchJobs(type, res);
 });
 
 app.listen(PORT, () => {
