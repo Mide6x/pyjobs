@@ -4,7 +4,6 @@ import cheerio from "cheerio";
 import cors from "cors";
 
 const app = express();
-const PORT = 5000;
 
 app.use(cors());
 
@@ -101,6 +100,4 @@ app.get("/api/jobs/stream/:type", (req, res) => {
   fetchJobs(type, res);
 });
 
-app.listen(PORT, () => {
-  console.log(`Server is running on http://localhost:${PORT}`);
-});
+export default app;

@@ -9,9 +9,7 @@ const App = () => {
 
   useEffect(() => {
     const fetchJobs = async () => {
-      const eventSource = new EventSource(
-        `http://localhost:5000/api/jobs/stream/${filter}`
-      );
+      const eventSource = new EventSource(`/api/jobs/stream/${filter}`);
 
       eventSource.onmessage = function (event) {
         if (event.data === "[END]") {
